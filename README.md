@@ -4,6 +4,13 @@ PyTorch implementation of the Attention Diffusion Network from ["Structured Time
 
 This project is a work in progress.
 
+# Requirements
+
+```
+Python 3.8+
+Torch ~1.10
+einops
+```
 # Install
 
 From pip:
@@ -38,3 +45,5 @@ model = ADN(d_features = 1,
 The model takes 6 arguments in its forward pass - For both the source and the target 
 sequence, the features, the temporal descriptors and the spatial descriptors. A 
 detailed example is provided in the `adn/example.py` file.
+
+

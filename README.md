@@ -7,7 +7,7 @@ This project is a work in progress.
 # Requirements
 
 ```
-Python 3.8+
+Python 3.6+
 Torch ~1.10
 einops
 ```
@@ -15,7 +15,9 @@ einops
 
 From pip:
 
-`pip install adn-torch`
+```
+pip install adn-torch
+```
 
 Or from the source code (in editable / developer mode): 
 ```

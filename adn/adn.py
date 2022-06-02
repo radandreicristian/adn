@@ -203,7 +203,11 @@ class MultiHeadAttention(nn.Module):
 
 
 class SelfAttentionBlock(nn.Module):
-    """A wrapper over the multi-head attention in case K, Q and V are the same."""
+    """
+    A wrapper over the multi-head attention.
+
+    Use this when Q, K and V should be the transformations of the same source tensor.
+    """
 
     def __init__(
         self,
@@ -607,33 +611,34 @@ class ADN(nn.Module):
         )
 
     def init(
-        self, x: Tensor, temporal_descriptor: Tensor, spatial_descriptor: Tensor
+        self, x: Tensor,
+            temporal_descriptor_interval_of_day: Tensor,
+            temporal_descriptor_day_of_week: Tensor,
+            spatial_descriptor: Tensor
     ) -> Tensor:
         """
         Initialize the features for the encoder and decoder.
 
         Equivalent of the ENC-INIT and DEC-INIT blocks from the paper.
         :param x: The features tensor of shape (B, N, T, D_in)
-        :param temporal_descriptor: A tensor of shape (B, T, 2) which contains one-hot
-        encoded information about the interval of the day and day of the week.
+        :param temporal_descriptor_interval_of_day: A tensor of shape (B, T) which
+        contains one-hot encoded information about the interval of the day.
+        :param temporal_descriptor_day_of_week: A tensor of shape (B, T) which
+        contains one-hot encoded information about the day of the week.
         :param spatial_descriptor: A tensor of shape (B, N, 1) which contains at
         least a consistent index of spatial locations in a sequence).
         :return: A tensor of shape (B, N, T, D) which is a result of adding the
         features from the descriptors, the positional encodings and the features.
         """
-        b, t, _ = temporal_descriptor.shape
+        b, t = temporal_descriptor_interval_of_day.shape
         _, n, _ = spatial_descriptor.shape
 
-        # temporal_descriptor (B, T, 2)
-        minute_index = temporal_descriptor[..., 0]
-        day_index = temporal_descriptor[..., 1]
-
-        minute_embedding = self.minute_interval_embedding(minute_index)
+        minute_embedding = self.minute_interval_embedding(temporal_descriptor_interval_of_day)
 
         # minute_embedding (B, N, T, D)
         minute_embedding = repeat(minute_embedding, "b t d -> b n t d", n=n)
 
-        day_embedding = self.day_embedding(day_index)
+        day_embedding = self.day_embedding(temporal_descriptor_day_of_week)
 
         # day_embedding (B, N, T, D)
         day_embedding = repeat(day_embedding, "b t d -> b n t d", n=n)
@@ -656,38 +661,47 @@ class ADN(nn.Module):
 
     def forward(
         self,
-        source_features: Tensor,
-        source_temporal_descriptor: Tensor,
-        source_spatial_descriptor: Tensor,
-        target_features: Tensor,
-        target_temporal_descriptor: Tensor,
-        target_spatial_descriptor: Tensor,
+        src_features: Tensor,
+        src_temporal_descriptor_interval_of_day: Tensor,
+        src_temporal_descriptor_day_of_week: Tensor,
+        src_spatial_descriptor,
+        tgt_features: Tensor,
+        tgt_temporal_descriptor_interval_of_day: Tensor,
+        tgt_temporal_descriptor_day_of_week: Tensor,
+        tgt_spatial_descriptor: Tensor,
     ) -> Tensor:
         """
         Forward the input tensors through the model.
 
-        :param source_features: Features of the source sequence of shape (B, N, T, D).
-        :param source_temporal_descriptor: Temporal descriptor of the source sequence
-        of shape (B, T, 2).
-        :param source_spatial_descriptor: Spatial descriptor of the source sequence
-        of shape (B, N, 1).
-        :param target_features: Features of the source sequence of shape (B, N, T, D).
-        :param target_temporal_descriptor: Temporal descriptor of the source sequence
-        of shape (B, T, 2).
-        :param target_spatial_descriptor: Spatial descriptor of the source sequence
-        of shape (B, N, 1).
+        :param src_features: Features of the source sequence of shape (B, N, T, D).
+        :param src_temporal_descriptor_interval_of_day: Interval-of-day temporal
+        descriptor of the source sequence of shape (B, T).
+        :param src_temporal_descriptor_day_of_week: Day-of-the-week temporal
+        descriptor of the source sequence of shape (B, T).
+        :param src_spatial_descriptor: Spatial descriptor of the source
+        sequence of shape (B, N, 1)
+        :param tgt_features: Features of the source sequence of shape (B, N, T, D).
+        :param tgt_temporal_descriptor_interval_of_day: Interval-of-day temporal
+        descriptor of the source sequence of shape (B, T).
+        :param tgt_temporal_descriptor_day_of_week: Day-of-the-week temporal
+        descriptor of the source sequence of shape (B, T).
+        :param tgt_spatial_descriptor: Spatial descriptor of the source
+        sequence of shape (B, N, 1)
         :return: A tensor of shape (B, N, T, D) corresponding to the prediction.
         """
+
         source_features = self.init(
-            x=source_features,
-            temporal_descriptor=source_temporal_descriptor,
-            spatial_descriptor=source_spatial_descriptor,
+            x=src_features,
+            temporal_descriptor_interval_of_day=src_temporal_descriptor_interval_of_day,
+            temporal_descriptor_day_of_week=src_temporal_descriptor_day_of_week,
+            spatial_descriptor=src_spatial_descriptor,
         )
 
         target_features = self.init(
-            x=target_features,
-            temporal_descriptor=target_temporal_descriptor,
-            spatial_descriptor=target_spatial_descriptor,
+            x=tgt_features,
+            temporal_descriptor_interval_of_day=tgt_temporal_descriptor_interval_of_day,
+            temporal_descriptor_day_of_week=tgt_temporal_descriptor_day_of_week,
+            spatial_descriptor=tgt_spatial_descriptor,
         )
 
         for encoder in self.encoders:

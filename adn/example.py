@@ -31,47 +31,44 @@ if __name__ == "__main__":
     # spatial_descriptors - Each spatial location is an index 0...N
     spatial_range = torch.arange(start=0, end=n_nodes)
 
-    source_spatial_descriptor = repeat(spatial_range, "n -> b n h", b=batch_size, h=1)
+    src_spatial_descriptor = repeat(spatial_range, "n -> b n h", b=batch_size, h=1)
 
-    target_spatial_descriptor = repeat(spatial_range, "n -> b n h", b=batch_size, h=1)
+    tgt_spatial_descriptor = repeat(spatial_range, "n -> b n h", b=batch_size, h=1)
 
     # temporal_descriptor - At index [..., 0] - one-hot-encoding of 5-mins intervals
     # in a day. At index [..., 1] - one-hot-encoding of the day of the week.
-    source_temporal_descriptor = torch.zeros(
-        size=(batch_size, time_steps, 2), dtype=torch.int
-    )
-    source_temporal_descriptor[..., 0] = torch.randint(
+
+    src_temporal_descriptor_interval_of_day = torch.randint(
         low=0,
         high=287,
         size=(batch_size, time_steps),
     )
-    source_temporal_descriptor[..., 1] = torch.randint(
+    src_temporal_descriptor_day_of_week = torch.randint(
         low=0, high=6, size=(batch_size, time_steps)
     )
 
-    target_temporal_descriptor = torch.zeros(
-        size=(batch_size, time_steps, 2), dtype=torch.int
-    )
-    target_temporal_descriptor[..., 0] = torch.randint(
+    tgt_temporal_descriptor_interval_of_day = torch.randint(
         low=0,
         high=287,
         size=(batch_size, time_steps),
     )
-    target_temporal_descriptor[..., 1] = torch.randint(
+    tgt_temporal_descriptor_day_of_week = torch.randint(
         low=0, high=6, size=(batch_size, time_steps)
     )
 
     # features (B, N, T, d_features)
-    source_features = torch.randn(batch_size, n_nodes, time_steps, d_features)
-    target_features = torch.randn(batch_size, n_nodes, time_steps, d_features)
+    src_features = torch.randn(batch_size, n_nodes, time_steps, d_features)
+    tgt_features = torch.randn(batch_size, n_nodes, time_steps, d_features)
 
     predict = model(
-        source_features=source_features,
-        source_temporal_descriptor=source_temporal_descriptor,
-        source_spatial_descriptor=source_spatial_descriptor,
-        target_features=target_features,
-        target_spatial_descriptor=target_spatial_descriptor,
-        target_temporal_descriptor=target_temporal_descriptor,
+        src_features=src_features,
+        src_temporal_descriptor_interval_of_day=src_temporal_descriptor_interval_of_day,
+        src_temporal_descriptor_day_of_week=src_temporal_descriptor_day_of_week,
+        src_spatial_descriptor=src_spatial_descriptor,
+        tgt_features=tgt_features,
+        tgt_temporal_descriptor_interval_of_day=tgt_temporal_descriptor_interval_of_day,
+        tgt_temporal_descriptor_day_of_week=tgt_temporal_descriptor_day_of_week,
+        tgt_spatial_descriptor=tgt_spatial_descriptor,
     )
 
     print(predict.shape)

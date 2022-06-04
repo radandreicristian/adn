@@ -1,3 +1,5 @@
+import time
+
 import torch
 from einops import repeat
 
@@ -6,14 +8,14 @@ from adn import ADN
 if __name__ == "__main__":
 
     d_features = 1
-    d_hidden = 4
-    d_feedforward = 4
-    n_heads = 2
-    p_dropout = 0
-    batch_size = 2
-    n_blocks = 1
-    n_nodes = 315
-    time_steps = 12
+    d_hidden = 32
+    d_feedforward = 256
+    n_heads = 4
+    p_dropout = 0.3
+    batch_size = 8
+    n_blocks = 3
+    spatial_seq_len = 315
+    temporal_seq_len = 12
 
     config = {
         "d_features": d_features,
@@ -21,54 +23,56 @@ if __name__ == "__main__":
         "d_feedforward": d_feedforward,
         "n_heads": n_heads,
         "p_dropout": p_dropout,
-        "batch_size": batch_size,
+        "spatial_seq_len": spatial_seq_len,
+        "temporal_seq_len": temporal_seq_len,
         "n_blocks": n_blocks,
-        "n_nodes": n_nodes,
     }
 
     model = ADN(**config)
 
     # spatial_descriptors - Each spatial location is an index 0...N
-    spatial_range = torch.arange(start=0, end=n_nodes)
+    spatial_range = torch.arange(start=0, end=spatial_seq_len)
 
-    src_spatial_descriptor = repeat(spatial_range, "n -> b n h", b=batch_size, h=1)
+    src_spatial_descriptor = repeat(spatial_range, "n -> n t", t=temporal_seq_len)
 
-    tgt_spatial_descriptor = repeat(spatial_range, "n -> b n h", b=batch_size, h=1)
-
-    # temporal_descriptor - At index [..., 0] - one-hot-encoding of 5-mins intervals
-    # in a day. At index [..., 1] - one-hot-encoding of the day of the week.
+    tgt_spatial_descriptor = repeat(spatial_range, "n -> n t", t=temporal_seq_len)
 
     src_temporal_descriptor_interval_of_day = torch.randint(
         low=0,
         high=287,
-        size=(batch_size, time_steps),
+        size=(batch_size, spatial_seq_len, temporal_seq_len),
     )
     src_temporal_descriptor_day_of_week = torch.randint(
-        low=0, high=6, size=(batch_size, time_steps)
+        low=0, high=6, size=(batch_size, spatial_seq_len, temporal_seq_len)
     )
 
     tgt_temporal_descriptor_interval_of_day = torch.randint(
         low=0,
         high=287,
-        size=(batch_size, time_steps),
+        size=(batch_size, spatial_seq_len, temporal_seq_len),
     )
     tgt_temporal_descriptor_day_of_week = torch.randint(
-        low=0, high=6, size=(batch_size, time_steps)
+        low=0, high=6, size=(batch_size, spatial_seq_len, temporal_seq_len)
     )
 
     # features (B, N, T, d_features)
-    src_features = torch.randn(batch_size, n_nodes, time_steps, d_features)
-    tgt_features = torch.randn(batch_size, n_nodes, time_steps, d_features)
+    src_features = torch.randn(batch_size, spatial_seq_len, temporal_seq_len, d_features)
+    tgt_features = torch.randn(batch_size, spatial_seq_len, temporal_seq_len, d_features)
 
+    start = time.time()
     predict = model(
         src_features=src_features,
-        src_temporal_descriptor_interval_of_day=src_temporal_descriptor_interval_of_day,
-        src_temporal_descriptor_day_of_week=src_temporal_descriptor_day_of_week,
+        src_interval_of_day=src_temporal_descriptor_interval_of_day,
+        src_day_of_week=src_temporal_descriptor_day_of_week,
         src_spatial_descriptor=src_spatial_descriptor,
         tgt_features=tgt_features,
-        tgt_temporal_descriptor_interval_of_day=tgt_temporal_descriptor_interval_of_day,
-        tgt_temporal_descriptor_day_of_week=tgt_temporal_descriptor_day_of_week,
+        tgt_interval_of_day=tgt_temporal_descriptor_interval_of_day,
+        tgt_day_of_week=tgt_temporal_descriptor_day_of_week,
         tgt_spatial_descriptor=tgt_spatial_descriptor,
     )
 
+    finish = time.time()
+    print(finish - start)
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(total_params)
     print(predict.shape)

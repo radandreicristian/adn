@@ -1,6 +1,5 @@
 from typing import Type
 
-import einops
 import torch
 import torch.nn as nn
 import torch.nn.functional as f
@@ -66,21 +65,21 @@ class SpatialSplit(nn.Module):
         :return: A tensor of shape (BN, T, D).
         """
         # x (batch, nodes, time, dim)
-        return einops.rearrange(x, "b n t d -> (b n) t d")
+        return rearrange(x, "b n t d -> (b n) t d")
 
 
 class SpatialMerge(nn.Module):
     """A module for spatial merging."""
 
-    def __init__(self, batch_size: int) -> None:
+    def __init__(self, spatial_seq_len: int) -> None:
         """
         Initialize the module.
 
         This operation is complementary to the spatial split.
-        :param batch_size: The batch size of the module.
+        :param spatial_seq_len: The length of the spatial dimension.
         """
         super(SpatialMerge, self).__init__()
-        self.batch_size = batch_size
+        self.spatial_seq_len = spatial_seq_len
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -90,7 +89,7 @@ class SpatialMerge(nn.Module):
         :param x: A tensor of shape (BN, T, D).
         :return: A tensor of shape (B, N, T, D).
         """
-        return einops.rearrange(x, "(b n) t d -> b n t d", b=self.batch_size)
+        return rearrange(x, "(b n) t d -> b n t d", n=self.spatial_seq_len)
 
 
 class TemporalSplit(nn.Module):
@@ -112,21 +111,21 @@ class TemporalSplit(nn.Module):
         :param x: A tensor of shape (B, N, T, D).
         :return:  A tensor of shape (BT, N, D).
         """
-        return einops.rearrange(x, "b n t d -> (b t) n d")
+        return rearrange(x, "b n t d -> (b t) n d")
 
 
 class TemporalMerge(nn.Module):
     """A module for temporal merging."""
 
-    def __init__(self, batch_size: int) -> None:
+    def __init__(self, temporal_seq_len: int) -> None:
         """
         Initialize the module.
 
         This operation is complementary to the temporal split.
-        :param batch_size: The batch size of the module.
+        :param temporal_seq_len: The length of the temporal dimension.
         """
         super(TemporalMerge, self).__init__()
-        self.batch_size = batch_size
+        self.temporal_seq_len = temporal_seq_len
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -136,7 +135,7 @@ class TemporalMerge(nn.Module):
         :param x: A tensor of shape (BT, N, D).
         :return: A tensor of shape (B, N, T, D).
         """
-        return einops.rearrange(x, "(b t) n d -> b n t d", b=self.batch_size)
+        return rearrange(x, "(b t) n d -> b n t d", t=self.temporal_seq_len)
 
 
 class MultiHeadAttention(nn.Module):
@@ -188,10 +187,10 @@ class MultiHeadAttention(nn.Module):
 
         attention_map = q @ k.transpose(-1, -2) * self.scale
         if self.use_mask:
-            # Assume masking is only done after a spatial split, so data is (BN, T, D)
+            # Assume masking is only done after a spatial split.
             batch_size, _, seq_len, _ = q.shape
             mask = torch.tril(torch.ones(seq_len, seq_len).to(x.device))
-            mask = repeat(mask, "a b -> j n a b", j=batch_size, n=self.n_heads).to(
+            mask = repeat(mask, "m n -> b h m n", b=batch_size, h=self.n_heads).to(
                 torch.bool
             )
             condition = torch.tensor([-(2**15) + 1], dtype=torch.float32).to(x.device)
@@ -297,7 +296,8 @@ class Encoder(nn.Module):
         d_feedforward: int,
         n_heads: int,
         p_dropout: float,
-        batch_size: int,
+        spatial_seq_len: int,
+        temporal_seq_len: int,
     ) -> None:
         """
         Initialize the module.
@@ -306,7 +306,8 @@ class Encoder(nn.Module):
         :param d_feedforward: The hidden dimension of the MLP.
         :param n_heads: The number of heads in the multi-head attention.
         :param p_dropout: The dropout probability.
-        :param batch_size: The batch size.
+        :param spatial_seq_len: The length of the spatial dimension.
+        :param temporal_seq_len: The length of the temporal dimension.
         """
         super(Encoder, self).__init__()
         self.spatial_split = SpatialSplit()
@@ -321,7 +322,7 @@ class Encoder(nn.Module):
             p_dropout=p_dropout,
             activation=nn.ReLU,
         )
-        self.spatial_merge = SpatialMerge(batch_size=batch_size)
+        self.spatial_merge = SpatialMerge(spatial_seq_len=spatial_seq_len)
 
         self.temporal_split = TemporalSplit()
 
@@ -336,7 +337,7 @@ class Encoder(nn.Module):
             activation=nn.ReLU,
         )
 
-        self.temporal_merge = TemporalMerge(batch_size=batch_size)
+        self.temporal_merge = TemporalMerge(temporal_seq_len=temporal_seq_len)
 
     def forward(self, source_features: Tensor) -> Tensor:
         """
@@ -386,7 +387,8 @@ class Decoder(nn.Module):
         d_feedforward: int,
         n_heads: int,
         p_dropout: float,
-        batch_size: int,
+        spatial_seq_len: int,
+        temporal_seq_len: int,
     ) -> None:
         """
         Initialize the module.
@@ -395,7 +397,8 @@ class Decoder(nn.Module):
         :param d_feedforward: The hidden dimension of the MLP.
         :param n_heads: The number of heads in the multi-head attention.
         :param p_dropout: The dropout probability.
-        :param batch_size: The batch size.
+        :param spatial_seq_len: The length of the spatial dimension.
+        :param temporal_seq_len: The length of the temporal dimension.
         """
         super(Decoder, self).__init__()
         self.spatial_split = SpatialSplit()
@@ -415,7 +418,7 @@ class Decoder(nn.Module):
             activation=nn.ReLU,
         )
 
-        self.spatial_merge = SpatialMerge(batch_size=batch_size)
+        self.spatial_merge = SpatialMerge(spatial_seq_len=spatial_seq_len)
 
         self.temporal_split = TemporalSplit()
 
@@ -430,7 +433,7 @@ class Decoder(nn.Module):
             activation=nn.ReLU,
         )
 
-        self.temporal_merge = TemporalMerge(batch_size=batch_size)
+        self.temporal_merge = TemporalMerge(temporal_seq_len=temporal_seq_len)
 
     def forward(self, source_features: Tensor, target_features: Tensor) -> Tensor:
         """
@@ -544,9 +547,9 @@ class ADN(nn.Module):
         d_feedforward: int,
         n_heads: int,
         p_dropout: int,
-        batch_size: int,
         n_blocks: int,
-        n_nodes: int,
+        spatial_seq_len: int,
+        temporal_seq_len: int,
     ) -> None:
         """
         Initialize the module.
@@ -557,9 +560,9 @@ class ADN(nn.Module):
         :param d_feedforward: The hidden dimension of the MLP.
         :param n_heads: The number of heads in the multi-head attention.
         :param p_dropout: The dropout probability.
-        :param batch_size: The batch size.
         :param n_blocks: The number of stacked encoder and decoder blocks.
-        :param n_nodes: Number of nodes (spatial locations).
+        :param spatial_seq_len: The length of the spatial dimension.
+        :param temporal_seq_len: The length of the temporal dimension.
         """
         super(ADN, self).__init__()
 
@@ -577,7 +580,8 @@ class ADN(nn.Module):
                     d_feedforward=d_feedforward,
                     n_heads=n_heads,
                     p_dropout=p_dropout,
-                    batch_size=batch_size,
+                    spatial_seq_len=spatial_seq_len,
+                    temporal_seq_len=temporal_seq_len,
                 )
                 for _ in range(n_blocks)
             ]
@@ -590,7 +594,8 @@ class ADN(nn.Module):
                     d_feedforward=d_feedforward,
                     n_heads=n_heads,
                     p_dropout=p_dropout,
-                    batch_size=batch_size,
+                    spatial_seq_len=spatial_seq_len,
+                    temporal_seq_len=temporal_seq_len,
                 )
                 for _ in range(n_blocks)
             ]
@@ -603,7 +608,7 @@ class ADN(nn.Module):
         self.day_embedding = nn.Embedding(num_embeddings=7, embedding_dim=d_hidden)
 
         self.spatial_embedding = nn.Embedding(
-            num_embeddings=n_nodes, embedding_dim=d_hidden
+            num_embeddings=spatial_seq_len, embedding_dim=d_hidden
         )
 
         self.feature_linear_out = nn.Linear(
@@ -611,10 +616,11 @@ class ADN(nn.Module):
         )
 
     def init(
-        self, x: Tensor,
-            temporal_descriptor_interval_of_day: Tensor,
-            temporal_descriptor_day_of_week: Tensor,
-            spatial_descriptor: Tensor
+        self,
+        x: Tensor,
+        temporal_descriptor_interval_of_day: Tensor,
+        temporal_descriptor_day_of_week: Tensor,
+        spatial_descriptor: Tensor,
     ) -> Tensor:
         """
         Initialize the features for the encoder and decoder.
@@ -630,25 +636,25 @@ class ADN(nn.Module):
         :return: A tensor of shape (B, N, T, D) which is a result of adding the
         features from the descriptors, the positional encodings and the features.
         """
-        b, t = temporal_descriptor_interval_of_day.shape
-        _, n, _ = spatial_descriptor.shape
-
-        minute_embedding = self.minute_interval_embedding(temporal_descriptor_interval_of_day)
+        b, t, _ = temporal_descriptor_interval_of_day.shape
+        n, _ = spatial_descriptor.shape
 
         # minute_embedding (B, N, T, D)
-        minute_embedding = repeat(minute_embedding, "b t d -> b n t d", n=n)
-
-        day_embedding = self.day_embedding(temporal_descriptor_day_of_week)
+        minute_embedding = self.minute_interval_embedding(
+            temporal_descriptor_interval_of_day
+        )
 
         # day_embedding (B, N, T, D)
-        day_embedding = repeat(day_embedding, "b t d -> b n t d", n=n)
+        day_embedding = self.day_embedding(temporal_descriptor_day_of_week)
 
         # spatial_descriptor (B, N, 1)
-        spatial_embedding = self.spatial_embedding(torch.squeeze(spatial_descriptor))
+        spatial_descriptor = repeat(spatial_descriptor, "n t-> b n t", b=b)
+
+        spatial_embedding = self.spatial_embedding(
+            torch.squeeze(spatial_descriptor, dim=-1)
+        )
 
         # spatial_embedding (B, N, T, D)
-        spatial_embedding = repeat(spatial_embedding, "b n d -> b n t d", t=t)
-
         spatio_temporal_embedding = minute_embedding + day_embedding + spatial_embedding
 
         # embedding (B, N, T, D)
@@ -662,28 +668,28 @@ class ADN(nn.Module):
     def forward(
         self,
         src_features: Tensor,
-        src_temporal_descriptor_interval_of_day: Tensor,
-        src_temporal_descriptor_day_of_week: Tensor,
+        src_interval_of_day: Tensor,
+        src_day_of_week: Tensor,
         src_spatial_descriptor,
         tgt_features: Tensor,
-        tgt_temporal_descriptor_interval_of_day: Tensor,
-        tgt_temporal_descriptor_day_of_week: Tensor,
+        tgt_interval_of_day: Tensor,
+        tgt_day_of_week: Tensor,
         tgt_spatial_descriptor: Tensor,
     ) -> Tensor:
         """
         Forward the input tensors through the model.
 
         :param src_features: Features of the source sequence of shape (B, N, T, D).
-        :param src_temporal_descriptor_interval_of_day: Interval-of-day temporal
+        :param src_interval_of_day: Interval-of-day temporal
         descriptor of the source sequence of shape (B, T).
-        :param src_temporal_descriptor_day_of_week: Day-of-the-week temporal
+        :param src_day_of_week: Day-of-the-week temporal
         descriptor of the source sequence of shape (B, T).
         :param src_spatial_descriptor: Spatial descriptor of the source
         sequence of shape (B, N, 1)
         :param tgt_features: Features of the source sequence of shape (B, N, T, D).
-        :param tgt_temporal_descriptor_interval_of_day: Interval-of-day temporal
+        :param tgt_interval_of_day: Interval-of-day temporal
         descriptor of the source sequence of shape (B, T).
-        :param tgt_temporal_descriptor_day_of_week: Day-of-the-week temporal
+        :param tgt_day_of_week: Day-of-the-week temporal
         descriptor of the source sequence of shape (B, T).
         :param tgt_spatial_descriptor: Spatial descriptor of the source
         sequence of shape (B, N, 1)
@@ -692,15 +698,15 @@ class ADN(nn.Module):
 
         source_features = self.init(
             x=src_features,
-            temporal_descriptor_interval_of_day=src_temporal_descriptor_interval_of_day,
-            temporal_descriptor_day_of_week=src_temporal_descriptor_day_of_week,
+            temporal_descriptor_interval_of_day=src_interval_of_day,
+            temporal_descriptor_day_of_week=src_day_of_week,
             spatial_descriptor=src_spatial_descriptor,
         )
 
         target_features = self.init(
             x=tgt_features,
-            temporal_descriptor_interval_of_day=tgt_temporal_descriptor_interval_of_day,
-            temporal_descriptor_day_of_week=tgt_temporal_descriptor_day_of_week,
+            temporal_descriptor_interval_of_day=tgt_interval_of_day,
+            temporal_descriptor_day_of_week=tgt_day_of_week,
             spatial_descriptor=tgt_spatial_descriptor,
         )
 

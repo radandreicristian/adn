@@ -37,11 +37,12 @@ from adn import ADN
 model = ADN(d_features = 1,
             d_hidden=32,
             d_feedforward=256,
-            n_heads=8,
-            p_dropout=0.1,
-            batch_size=8,
+            n_heads=4,
+            p_dropout=0.3,
+            batch_size=64,
             n_blocks=3,
-            n_nodes=325)
+            spatial_seq_len=12,
+            temporal_seq_len=315)
 ```
 
 The model takes 6 arguments in its forward pass - For both the source and the target 

@@ -411,7 +411,14 @@ class Decoder(nn.Module):
             d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout
         )
 
-        self.temporal_feedforward = ResidualNormFeedforward(
+        self.temporal_feedforward_self = ResidualNormFeedforward(
+            d_hidden=d_hidden,
+            d_feedforward=d_feedforward,
+            p_dropout=p_dropout,
+            activation=nn.ReLU,
+        )
+
+        self.temporal_feedforward_cross = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
@@ -452,6 +459,8 @@ class Decoder(nn.Module):
         # h (BN, T', D)
         target_features = self.temporal_self_attention(target_features)
 
+        target_features = self.temporal_feedforward_self(target_features)
+
         # todo - There is a dimension mismatch here...
         # h (BN, T, D)
         hidden = self.temporal_cross_attention(
@@ -459,7 +468,7 @@ class Decoder(nn.Module):
         )
 
         # h (BN, T, D)
-        hidden = self.temporal_feedforward(hidden)
+        hidden = self.temporal_feedforward_cross(hidden)
 
         # h (B, N, T, D)
         hidden = self.spatial_merge(hidden)

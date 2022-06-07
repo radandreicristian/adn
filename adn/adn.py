@@ -488,64 +488,6 @@ class Decoder(nn.Module):
         return hidden
 
 
-class PositionalEncoding(nn.Module):
-    """
-    A module for generating positional embeddings, as in the Transformer paper.
-
-    https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/master/transformer/Models.py
-    """
-
-    def __init__(self, d_hidden: int, n_position: int = 500) -> None:
-        """
-        Initialize the module.
-
-        :param d_hidden: The hidden dimension.
-        :param n_position: The number of indices (positions) for which to generate.
-        """
-        super(PositionalEncoding, self).__init__()
-        # Not a parameter
-        self.register_buffer(
-            "pos_table", self._get_sinusoid_encoding_table(d_hidden, n_position)
-        )
-
-    def _get_sinusoid_encoding_table(self, d_hidden, n_position) -> Tensor:
-        """
-        Generate positional embedding of a specific dimension for a number of positions.
-
-        :param d_hidden: The hidden dimension.
-        :param n_position: The number of positions (indices).
-        :return: A tensor of shape (1, n_position, 1, d_hidden).
-        """
-
-        def get_position_angle_vec(position):
-            base = torch.tensor([10000])
-            exponent = torch.tensor(
-                [2 * (h // 2) / d_hidden for h in range(d_hidden)], dtype=torch.float32
-            )
-            array = position / torch.pow(base, exponent)
-            return array
-
-        sinusoid_table = torch.stack(
-            [get_position_angle_vec(pos_i) for pos_i in range(n_position)]
-        )
-        sinusoid_table[:, 0::2] = torch.sin(sinusoid_table[:, 0::2])  # dim 2i
-        sinusoid_table[:, 1::2] = torch.cos(sinusoid_table[:, 1::2])  # dim 2i+1
-
-        # positional_embeddings (1, pos, 1, d_hidden)
-        positional_embeddings = sinusoid_table.unsqueeze(0).unsqueeze(-2)
-        return positional_embeddings
-
-    def forward(self, x):
-        """
-        Forward a tensor of shape (B, N, T, D).
-
-        Adds the positional encodings to the tensor and return it.
-        :param x: A tensor of shape (B, N, T, D).
-        :return: A tensor of shape (B, N, T, D).
-        """
-        return x + self.pos_table[:, : x.size(1), :, :].clone().detach()
-
-
 class ADN(nn.Module):
     """The Attention-Diffusion Network module."""
 
@@ -576,7 +518,6 @@ class ADN(nn.Module):
         super(ADN, self).__init__()
 
         # Todo - Implement padding.
-        self.positional_embedder = PositionalEncoding(d_hidden=d_hidden, n_position=500)
 
         self.feature_linear_in = nn.Linear(
             in_features=d_features, out_features=d_hidden
@@ -666,13 +607,10 @@ class ADN(nn.Module):
         # spatial_embedding (B, N, T, D)
         spatio_temporal_embedding = minute_embedding + day_embedding + spatial_embedding
 
-        # embedding (B, N, T, D)
-        embedding = self.positional_embedder(spatio_temporal_embedding)
-
         # feature (B, N, T, D)
         feature = self.feature_linear_in(x)
 
-        return embedding + feature
+        return spatio_temporal_embedding + feature
 
     def forward(
         self,

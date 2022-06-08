@@ -26,7 +26,8 @@ class ResidualNormFeedforward(nn.Module):
         :param activation: The activation function between the MLP layers.
         """
         super(ResidualNormFeedforward, self).__init__()
-        self.dropout = nn.Dropout(p_dropout)
+        self.dropout_hidden = nn.Dropout(p_dropout)
+        self.dropout_output = nn.Dropout(p_dropout)
         self.activation = activation()
         self.fc_in = nn.Linear(in_features=d_hidden, out_features=d_feedforward)
         self.fc_out = nn.Linear(in_features=d_feedforward, out_features=d_hidden)
@@ -41,8 +42,8 @@ class ResidualNormFeedforward(nn.Module):
         :return: A tensor of shape (..., d_hidden).
         """
         h = self.activation(self.fc_in(x))
-        h = self.fc_out(self.dropout(h))
-        return self.layer_norm(x + h)
+        h = self.fc_out(self.dropout_hidden(h))
+        return self.layer_norm(self.dropout_output(x + h))
 
 
 class SpatialSplit(nn.Module):
@@ -266,7 +267,6 @@ class CrossAttentionBlock(nn.Module):
         self.attention_block = MultiHeadAttention(
             d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout, use_mask=use_mask
         )
-
         self.layer_norm_attention = nn.LayerNorm(d_hidden)
 
     def forward(self, q, k, v) -> Tensor:
@@ -278,7 +278,7 @@ class CrossAttentionBlock(nn.Module):
         :param v: The "values" to apply the attention map to.
         :return: A tensor of shape (BT, N, D) or (BN, T, D).
         """
-        h = self.layer_norm_attention(v + self.attention_block(q=q, k=k, v=v))
+        h = self.layer_norm_attention(q + self.attention_block(q=q, k=k, v=v))
         return h
 
 

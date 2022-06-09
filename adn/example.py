@@ -14,7 +14,7 @@ if __name__ == "__main__":
     p_dropout = 0.3
     batch_size = 8
     n_blocks = 3
-    spatial_seq_len = 207
+    spatial_seq_len = 400
     temporal_seq_len = 12
 
     config = {

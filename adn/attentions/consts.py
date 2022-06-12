@@ -1,0 +1,7 @@
+FULL = "full"
+FAVORPLUS = "favorplus"
+EFFICIENT = "efficient"
+LSH = "lsh"
+LINEAR = "linear"
+GROUP = "group"
+LINFORMER = "linformer"

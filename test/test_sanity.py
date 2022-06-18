@@ -92,6 +92,9 @@ class ShapeSanityTestCase(unittest.TestCase):
         finish = time.time()
         print(f"Runtime {attention_type}: {(finish - start):.2f}")
         total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                print(name, param.numel())
         print(f"Total Parameters {attention_type}: {total_params}")
 
         expected_shape = (self.batch_size, self.spatial_seq_len,

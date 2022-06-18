@@ -26,21 +26,25 @@ class MultiHeadAttention(nn.Module):
         self.n_heads = n_heads
         self.d_head = d_hidden // n_heads
 
-        self.to_qkv = nn.Linear(in_features=3 * d_hidden, out_features=3 * d_hidden,
-                                bias=False)
+        self.to_q = nn.Linear(in_features=d_hidden, out_features=d_hidden, bias=True)
+        self.to_k = nn.Linear(in_features=d_hidden, out_features=d_hidden, bias=True)
+        self.to_v = nn.Linear(in_features=d_hidden, out_features=d_hidden, bias=True)
+
         self.scale = self.d_head**-0.5
         if n_heads == 1:
             self.to_out = nn.Dropout(p=p_dropout)
         else:
             self.to_out = nn.Sequential(
-                nn.Linear(in_features=d_hidden, out_features=d_hidden),
+                nn.Linear(in_features=d_hidden, out_features=d_hidden, bias=False),
                 nn.Dropout(p=p_dropout),
             )
         self.use_mask = use_mask
         self._reset_parameters()
 
     def _reset_parameters(self):
-        xavier_uniform_(self.to_qkv.weight)
+        xavier_uniform_(self.to_q.weight)
+        xavier_uniform_(self.to_k.weight)
+        xavier_uniform_(self.to_v.weight)
 
     def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
         """
@@ -52,21 +56,20 @@ class MultiHeadAttention(nn.Module):
         :return: A tensor of shape (BT, N, D) or (BN, T, D).
         """
         # q, k, v (BT, N, D) or (BN, T, D)
-        x = torch.cat((q, k, v), dim=-1)
-        qkv = self.to_qkv(x).chunk(3, dim=-1)
+        q, k, v = self.to_q(q), self.to_k(k), self.to_v(v)
         q, k, v = map(
-            lambda t: rearrange(t, "b n (h d) -> b h n d", h=self.n_heads), qkv
+            lambda t: rearrange(t, "b n (h d) -> b h n d", h=self.n_heads), (q, k, v)
         )
 
         attention_map = q @ k.transpose(-1, -2) * self.scale
         if self.use_mask:
             # Assume masking is only done after a spatial split.
             batch_size, _, seq_len, _ = q.shape
-            mask = torch.tril(torch.ones(seq_len, seq_len).to(x.device))
+            mask = torch.tril(torch.ones(seq_len, seq_len).to(q.device))
             mask = repeat(mask, "m n -> b h m n", b=batch_size, h=self.n_heads).to(
                 torch.bool
             )
-            condition = torch.tensor([-(2**15) + 1], dtype=torch.float32).to(x.device)
+            condition = torch.tensor([-(2**15) + 1], dtype=torch.float32).to(q.device)
             attention_map = torch.where(mask, attention_map, condition)
         attention_map = f.softmax(attention_map, dim=-1)
         x = attention_map @ v

@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 from einops import rearrange, repeat
 from torch import Tensor
+from torch.nn.init import xavier_uniform_
+
 from adn.attentions import AttentionFactory, FULL
 
 
@@ -33,6 +35,12 @@ class ResidualNormFeedforward(nn.Module):
         self.fc_out = nn.Linear(in_features=d_feedforward, out_features=d_hidden)
 
         self.layer_norm = nn.LayerNorm(d_hidden)
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        for param in self.parameters():
+            if param.dim() > 1:
+                xavier_uniform_(param)
 
     def forward(self, x: Tensor) -> Tensor:
         """

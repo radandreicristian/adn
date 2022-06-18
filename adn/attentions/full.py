@@ -28,7 +28,7 @@ class MultiHeadAttention(nn.Module):
 
         self.to_qkv = nn.Linear(in_features=3 * d_hidden, out_features=3 * d_hidden,
                                 bias=False)
-        self.scale = self.d_head**0.5
+        self.scale = self.d_head**-0.5
         if n_heads == 1:
             self.to_out = nn.Dropout(p=p_dropout)
         else:

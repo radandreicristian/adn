@@ -319,9 +319,6 @@ class Encoder(nn.Module):
         # h (BN, T, D)
         hidden = self.temporal_attention(hidden)
 
-        # h (BN, T, D)
-        # hidden = self.temporal_feedforward(hidden)
-
         # h (B, N, T, D)
         hidden = self.spatial_merge(hidden)
 
@@ -388,14 +385,14 @@ class Decoder(nn.Module):
             activation=nn.ReLU,
         )
         """
-
+        """
         self.temporal_feedforward_cross = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
             activation=nn.ReLU,
         )
-
+        """
         self.spatial_merge = SpatialMerge(spatial_seq_len=spatial_seq_len)
 
         self.temporal_split = TemporalSplit()
@@ -443,7 +440,7 @@ class Decoder(nn.Module):
         )
 
         # h (BN, T, D)
-        hidden = self.temporal_feedforward_cross(hidden)
+        # hidden = self.temporal_feedforward_cross(hidden)
 
         # h (B, N, T, D)
         hidden = self.spatial_merge(hidden)

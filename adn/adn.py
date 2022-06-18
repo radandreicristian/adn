@@ -39,9 +39,7 @@ class ResidualNormFeedforward(nn.Module):
 
     def _reset_parameters(self):
         xavier_uniform_(self.fc_in.weight)
-        xavier_uniform_(self.fc_in.bias)
         xavier_uniform_(self.fc_out.weight)
-        xavier_uniform_(self.fc_out.bias)
 
     def forward(self, x: Tensor) -> Tensor:
         """

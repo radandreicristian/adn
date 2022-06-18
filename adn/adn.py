@@ -13,11 +13,11 @@ class ResidualNormFeedforward(nn.Module):
     """A module consisting of a 2-layer MLP, a layer normalization and a residual."""
 
     def __init__(
-        self,
-        d_hidden: int,
-        d_feedforward: int,
-        p_dropout: float,
-        activation: Type[nn.Module],
+            self,
+            d_hidden: int,
+            d_feedforward: int,
+            p_dropout: float,
+            activation: Type[nn.Module],
     ) -> None:
         """
         Initialize the module.
@@ -156,13 +156,13 @@ class SelfAttentionBlock(nn.Module):
     """
 
     def __init__(
-        self,
-        d_hidden: int,
-        n_heads: int,
-        p_dropout: float,
-        attention_type: str,
-        use_mask: bool = False,
-        **attention_kwargs,
+            self,
+            d_hidden: int,
+            n_heads: int,
+            p_dropout: float,
+            attention_type: str,
+            use_mask: bool = False,
+            **attention_kwargs,
     ) -> None:
         """
         Initialize the module.
@@ -202,11 +202,11 @@ class CrossAttentionBlock(nn.Module):
     """A wrapper over the multi-head attention in case K, Q, and V are different."""
 
     def __init__(
-        self,
-        d_hidden: int,
-        n_heads: int,
-        p_dropout: float,
-        use_mask: bool = False,
+            self,
+            d_hidden: int,
+            n_heads: int,
+            p_dropout: float,
+            use_mask: bool = False,
     ):
         """
         Initialize the module.
@@ -222,11 +222,11 @@ class CrossAttentionBlock(nn.Module):
         # The cross-attention is only used on the temporal dimension. Here we always
         # use full-attention.
         self.attention_block = AttentionFactory.build_attention(
-                    attention_type=FULL,
-                    d_hidden=d_hidden,
-                    n_heads=n_heads,
-                    p_dropout=p_dropout,
-                    use_mask=use_mask,
+            attention_type=FULL,
+            d_hidden=d_hidden,
+            n_heads=n_heads,
+            p_dropout=p_dropout,
+            use_mask=use_mask,
         )
         self.layer_norm_attention = nn.LayerNorm(d_hidden)
 
@@ -252,15 +252,15 @@ class Encoder(nn.Module):
     """
 
     def __init__(
-        self,
-        d_hidden: int,
-        d_feedforward: int,
-        n_heads: int,
-        p_dropout: float,
-        spatial_seq_len: int,
-        temporal_seq_len: int,
-        spatial_attention_type: str,
-        **spatial_attention_kwargs,
+            self,
+            d_hidden: int,
+            d_feedforward: int,
+            n_heads: int,
+            p_dropout: float,
+            spatial_seq_len: int,
+            temporal_seq_len: int,
+            spatial_attention_type: str,
+            **spatial_attention_kwargs,
     ) -> None:
         """
         Initialize the module.
@@ -357,15 +357,15 @@ class Decoder(nn.Module):
     """
 
     def __init__(
-        self,
-        d_hidden: int,
-        d_feedforward: int,
-        n_heads: int,
-        p_dropout: float,
-        spatial_seq_len: int,
-        temporal_seq_len: int,
-        spatial_attention_type: str,
-        **spatial_attention_kwargs,
+            self,
+            d_hidden: int,
+            d_feedforward: int,
+            n_heads: int,
+            p_dropout: float,
+            spatial_seq_len: int,
+            temporal_seq_len: int,
+            spatial_attention_type: str,
+            **spatial_attention_kwargs,
     ) -> None:
         """
         Initialize the module.
@@ -477,17 +477,17 @@ class ADN(nn.Module):
     """The Attention-Diffusion Network module."""
 
     def __init__(
-        self,
-        d_features: int,
-        d_hidden: int,
-        d_feedforward: int,
-        n_heads: int,
-        p_dropout: int,
-        n_blocks: int,
-        spatial_seq_len: int,
-        temporal_seq_len: int,
-        spatial_attention_type: str,
-        **spatial_attention_kwargs
+            self,
+            d_features: int,
+            d_hidden: int,
+            d_feedforward: int,
+            n_heads: int,
+            p_dropout: int,
+            n_blocks: int,
+            spatial_seq_len: int,
+            temporal_seq_len: int,
+            spatial_attention_type: str,
+            **spatial_attention_kwargs
     ) -> None:
         """
         Initialize the module.
@@ -578,11 +578,11 @@ class ADN(nn.Module):
         return self.partitions
 
     def init(
-        self,
-        x: Tensor,
-        temporal_descriptor_interval_of_day: Tensor,
-        temporal_descriptor_day_of_week: Tensor,
-        spatial_descriptor: Tensor,
+            self,
+            x: Tensor,
+            temporal_descriptor_interval_of_day: Tensor,
+            temporal_descriptor_day_of_week: Tensor,
+            spatial_descriptor: Tensor,
     ) -> Tensor:
         """
         Initialize the features for the encoder and decoder.
@@ -625,16 +625,16 @@ class ADN(nn.Module):
         return self.dropout_embedding(spatio_temporal_embedding + feature)
 
     def forward(
-        self,
-        src_features: Tensor,
-        src_interval_of_day: Tensor,
-        src_day_of_week: Tensor,
-        src_spatial_descriptor,
-        tgt_features: Tensor,
-        tgt_interval_of_day: Tensor,
-        tgt_day_of_week: Tensor,
-        tgt_spatial_descriptor: Tensor,
-        **kwargs
+            self,
+            src_features: Tensor,
+            src_interval_of_day: Tensor,
+            src_day_of_week: Tensor,
+            src_spatial_descriptor,
+            tgt_features: Tensor,
+            tgt_interval_of_day: Tensor,
+            tgt_day_of_week: Tensor,
+            tgt_spatial_descriptor: Tensor,
+            **kwargs
     ) -> Tensor:
         """
         Forward the input tensors through the model.

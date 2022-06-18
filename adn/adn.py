@@ -31,18 +31,17 @@ class ResidualNormFeedforward(nn.Module):
         self.dropout_hidden = nn.Dropout(p_dropout)
         self.dropout_output = nn.Dropout(p_dropout)
         self.activation = activation()
-        self.fc_in = nn.Linear(in_features=d_hidden, out_features=d_feedforward,
-                               bias=False)
-        self.fc_out = nn.Linear(in_features=d_feedforward, out_features=d_hidden,
-                                bias=False)
+        self.fc_in = nn.Linear(in_features=d_hidden, out_features=d_feedforward)
+        self.fc_out = nn.Linear(in_features=d_feedforward, out_features=d_hidden)
 
         self.layer_norm = nn.LayerNorm(d_hidden)
         self._reset_parameters()
 
     def _reset_parameters(self):
-        for param in self.parameters():
-            if param.dim() > 1:
-                xavier_uniform_(param)
+        xavier_uniform_(self.fc_in.weight)
+        xavier_uniform_(self.fc_in.bias)
+        xavier_uniform_(self.fc_out.weight)
+        xavier_uniform_(self.fc_out.bias)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -680,4 +679,5 @@ class ADN(nn.Module):
                 **kwargs
             )
 
+        # (B, N, T, 1)
         return self.feature_linear_out(target_features)

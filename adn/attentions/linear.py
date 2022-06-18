@@ -46,7 +46,7 @@ class LinearAttention(nn.Module):
         v = torch.einsum("nlhd,nhmd,nlh->nlhm", q, kv, z)
 
         v = rearrange(v, 'b l h d -> b l (h d)')
-        return self.out(v)
+        return self.to_out(v)
 
     def forward_single(self, x: torch.Tensor, **kwargs):
         return self.forward(q=x, k=x, v=x)

@@ -289,7 +289,7 @@ class Encoder(nn.Module):
             attention_type=spatial_attention_type, **spatial_attention_kwargs
         )
 
-        self.spatial_feedforward = ResidualNormFeedforward(
+        self.feedforward = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
@@ -323,11 +323,10 @@ class Encoder(nn.Module):
         # h (BT, N, D)
         hidden = self.spatial_attention(hidden, **kwargs)
 
-        # h (BT, N, D)
-        hidden = self.spatial_feedforward(hidden)
-
         # h (B, N, T, D)
         hidden = self.temporal_merge(hidden)
+
+        hidden = self.feedforward(hidden)
 
         return hidden
 
@@ -398,7 +397,7 @@ class Decoder(nn.Module):
             attention_type=spatial_attention_type, **spatial_attention_kwargs
         )
 
-        self.spatial_feedforward = ResidualNormFeedforward(
+        self.feedforward = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
@@ -448,10 +447,11 @@ class Decoder(nn.Module):
         hidden = self.spatial_attention(hidden, **kwargs)
 
         # h (BT, N, D)
-        hidden = self.spatial_feedforward(hidden)
 
         # h (B, N, T, D)
         hidden = self.temporal_merge(hidden)
+
+        hidden = self.feedforward(hidden)
 
         return hidden
 

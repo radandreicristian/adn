@@ -73,33 +73,28 @@ class GroupAttention(nn.Module):
         return self.to_out(x)
 
     def forward_single(self, x: torch.Tensor, **kwargs):
-        is_testing = kwargs.get("is_testing", False)
 
-        # Group attentions only during training/evaluation
-        if not is_testing:
-            b, _, d = x.shape
-            partitions = kwargs.get("partitions")
-            chunk_size = len(partitions[0])
-            odd_chunk_size = len(partitions[-1])
+        b, _, d = x.shape
+        partitions = kwargs.get("partitions")
+        chunk_size = len(partitions[0])
+        odd_chunk_size = len(partitions[-1])
 
-            result = []
+        result = []
 
-            for partition in partitions:
-                x_ = x[:, partition, :]
-                group_size = len(partition)
+        for partition in partitions:
+            x_ = x[:, partition, :]
+            group_size = len(partition)
 
-                # pad the smaller chunk if there is one
-                if group_size == odd_chunk_size:
-                    padding = chunk_size - odd_chunk_size
-                    pad_tensor = torch.zeros((b, padding, d)).to(x.device)
-                    x_ = torch.cat([x_, pad_tensor], dim=1)
-                group_attention = self.forward(q=x_, k=x_, v=x_)
-                result.append(group_attention)
+            # pad the smaller chunk if there is one
+            if group_size == odd_chunk_size:
+                padding = chunk_size - odd_chunk_size
+                pad_tensor = torch.zeros((b, padding, d)).to(x.device)
+                x_ = torch.cat([x_, pad_tensor], dim=1)
+            group_attention = self.forward(q=x_, k=x_, v=x_)
+            result.append(group_attention)
 
-            result = torch.cat(result, dim=1)
-            r = torch.cat(partitions)
+        result = torch.cat(result, dim=1)
+        r = torch.cat(partitions)
 
-            # Revert the shuffling
-            return result[:, torch.argsort(r), :]
-        else:
-            return self.forward(q=x, k=x, v=x)
+        # Revert the shuffling
+        return result[:, torch.argsort(r), :]

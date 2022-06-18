@@ -43,7 +43,7 @@ class ResidualNormFeedforward(nn.Module):
         """
         h = self.activation(self.fc_in(x))
         h = self.fc_out(self.dropout_hidden(h))
-        return self.layer_norm(self.dropout_output(x + h))
+        return self.layer_norm(self.dropout_output(h) + x)
 
 
 class SpatialSplit(nn.Module):
@@ -492,6 +492,8 @@ class ADN(nn.Module):
         self.partitions = None
         self.spatial_seq_len = spatial_seq_len
 
+        self.dropout_embedding = nn.Dropout(p=p_dropout)
+
         self.feature_linear_in = nn.Linear(
             in_features=d_features, out_features=d_hidden
         )
@@ -594,7 +596,7 @@ class ADN(nn.Module):
         # feature (B, N, T, D)
         feature = self.feature_linear_in(x)
 
-        return spatio_temporal_embedding + feature
+        return self.dropout_embedding(spatio_temporal_embedding + feature)
 
     def forward(
         self,

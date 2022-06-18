@@ -30,7 +30,7 @@ class MultiHeadAttention(nn.Module):
                                 bias=False)
         self.scale = self.d_head**0.5
         if n_heads == 1:
-            self.to_out = nn.Identity()
+            self.to_out = nn.Dropout(p=p_dropout)
         else:
             self.to_out = nn.Sequential(
                 nn.Linear(in_features=d_hidden, out_features=d_hidden),

@@ -237,8 +237,8 @@ class CrossAttentionBlock(nn.Module):
         :param v: The "values" to apply the attention map to.
         :return: A tensor of shape (BT, N, D) or (BN, T, D).
         """
-        h = self.layer_norm_attention(q + self.attention_block(q=q, k=k, v=v))
-        return h
+        x = self.layer_norm_attention(q + self.attention_block(q=q, k=k, v=v))
+        return x
 
 
 class Encoder(nn.Module):
@@ -296,14 +296,14 @@ class Encoder(nn.Module):
             attention_type=spatial_attention_type, **spatial_attention_kwargs
         )
 
-        self.feedforward = ResidualNormFeedforward(
+        self.feedforward_temporal = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
             activation=nn.ReLU,
         )
 
-        self.feedforward2 = ResidualNormFeedforward(
+        self.feedforward_spatial = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
@@ -325,7 +325,7 @@ class Encoder(nn.Module):
         # h (BN, T, D)
         hidden = self.temporal_attention(hidden)
 
-        hidden = self.feedforward(hidden)
+        hidden = self.feedforward_temporal(hidden)
 
         # h (B, N, T, D)
         hidden = self.spatial_merge(hidden)
@@ -336,12 +336,10 @@ class Encoder(nn.Module):
         # h (BT, N, D)
         hidden = self.spatial_attention(hidden, **kwargs)
 
-        hidden = self.feedforward2(hidden)
+        hidden = self.feedforward_spatial(hidden)
 
         # h (B, N, T, D)
         hidden = self.temporal_merge(hidden)
-
-        hidden = self.feedforward(hidden)
 
         return hidden
 
@@ -396,21 +394,21 @@ class Decoder(nn.Module):
             attention_type=spatial_attention_type, **spatial_attention_kwargs
         )
 
-        self.feedforward = ResidualNormFeedforward(
+        self.feedforward_self_temporal = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
             activation=nn.ReLU,
         )
 
-        self.feedforward2 = ResidualNormFeedforward(
+        self.feedforward_cross_temporal = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
             activation=nn.ReLU,
         )
 
-        self.feedforward3 = ResidualNormFeedforward(
+        self.feedforward_spatial = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
@@ -428,45 +426,40 @@ class Decoder(nn.Module):
         :param target_features: A tensor of shape (B, N, T, D).
         :return: A tensor of shape (B, N, T, D), representing the encoded features.
         """
-        # h (BN, T, D)
+        # source_features (BN, T, D)
         source_features = self.spatial_split(source_features)
 
-        # h (BN, T', D)
+        # target_features (BN, T', D)
         target_features = self.spatial_split(target_features)
 
-        # h (BN, T', D)
+        # target_features (BN, T', D)
         target_features = self.temporal_self_attention(target_features)
 
-        target_features = self.feedforward3(target_features)
+        # target_features (BN, T', D)
+        target_features = self.feedforward_self_temporal(target_features)
 
-        """
-        target_features = self.temporal_feedforward_self(target_features)
-        """
-
-        # todo - There is a dimension mismatch here...
-        # h (BN, T, D)
+        # hidden (BN, T, D)
         hidden = self.temporal_cross_attention(
             q=target_features, k=source_features, v=source_features
         )
 
-        hidden = self.feedforward(hidden)
+        # hidden (BN, T, D)
+        hidden = self.feedforward_cross_temporal(hidden)
 
-        # h (B, N, T, D)
+        # hidden (B, N, T, D)
         hidden = self.spatial_merge(hidden)
 
-        # h (BT, N, D)
+        # hidden (BT, N, D)
         hidden = self.temporal_split(hidden)
 
-        # h (BT, N, D)
+        # hidden (BT, N, D)
         hidden = self.spatial_attention(hidden, **kwargs)
 
-        # h (BT, N, D)
-        hidden = self.feedforward2(hidden)
+        # hidden (BT, N, D)
+        hidden = self.feedforward_spatial(hidden)
 
-        # h (B, N, T, D)
+        # hidden (B, N, T, D)
         hidden = self.temporal_merge(hidden)
-
-        hidden = self.feedforward(hidden)
 
         return hidden
 
@@ -654,6 +647,7 @@ class ADN(nn.Module):
         :return: A tensor of shape (B, N, T, D) corresponding to the prediction.
         """
 
+        # source_features (B, N, T, D)
         source_features = self.init(
             x=src_features,
             temporal_descriptor_interval_of_day=src_interval_of_day,
@@ -661,6 +655,7 @@ class ADN(nn.Module):
             spatial_descriptor=src_spatial_descriptor,
         )
 
+        # target_features (B, N, T, D)
         target_features = self.init(
             x=tgt_features,
             temporal_descriptor_interval_of_day=tgt_interval_of_day,
@@ -668,9 +663,11 @@ class ADN(nn.Module):
             spatial_descriptor=tgt_spatial_descriptor,
         )
 
+        # source_features (B, N, T, D)
         for encoder in self.encoders:
             source_features = encoder(source_features, **kwargs)
 
+        # target_features (B, N, T, D)
         for decoder in self.decoders:
             target_features = decoder(
                 source_features=source_features, target_features=target_features,

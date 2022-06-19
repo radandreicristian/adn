@@ -278,15 +278,6 @@ class Encoder(nn.Module):
             attention_type=FULL, use_mask=True
         )
 
-        """
-        self.temporal_feedforward = ResidualNormFeedforward(
-            d_hidden=d_hidden,
-            d_feedforward=d_feedforward,
-            p_dropout=p_dropout,
-            activation=nn.ReLU,
-        )
-        """
-
         self.spatial_merge = SpatialMerge(spatial_seq_len=spatial_seq_len)
 
         self.temporal_split = TemporalSplit()
@@ -394,14 +385,12 @@ class Decoder(nn.Module):
             attention_type=spatial_attention_type, **spatial_attention_kwargs
         )
 
-        """
         self.feedforward_self_temporal = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
             activation=nn.ReLU,
         )
-        """
 
         self.feedforward_cross_temporal = ResidualNormFeedforward(
             d_hidden=d_hidden,
@@ -438,7 +427,7 @@ class Decoder(nn.Module):
         target_features = self.temporal_self_attention(target_features)
 
         # target_features (BN, T', D)
-        # target_features = self.feedforward_self_temporal(target_features)
+        target_features = self.feedforward_self_temporal(target_features)
 
         # hidden (BN, T, D)
         hidden = self.temporal_cross_attention(

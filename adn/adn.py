@@ -394,12 +394,14 @@ class Decoder(nn.Module):
             attention_type=spatial_attention_type, **spatial_attention_kwargs
         )
 
+        """
         self.feedforward_self_temporal = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
             activation=nn.ReLU,
         )
+        """
 
         self.feedforward_cross_temporal = ResidualNormFeedforward(
             d_hidden=d_hidden,
@@ -436,7 +438,7 @@ class Decoder(nn.Module):
         target_features = self.temporal_self_attention(target_features)
 
         # target_features (BN, T', D)
-        target_features = self.feedforward_self_temporal(target_features)
+        # target_features = self.feedforward_self_temporal(target_features)
 
         # hidden (BN, T, D)
         hidden = self.temporal_cross_attention(
@@ -501,9 +503,10 @@ class ADN(nn.Module):
         self.spatial_seq_len = spatial_seq_len
 
         self.dropout_embedding = nn.Dropout(p=p_dropout)
+        self.layer_norm_embedding = nn.LayerNorm(d_hidden)
 
         self.feature_linear_in = nn.Linear(
-            in_features=d_features, out_features=d_hidden
+            in_features=d_features, out_features=d_hidden, bias=False
         )
 
         self.encoders = nn.ModuleList(
@@ -549,7 +552,7 @@ class ADN(nn.Module):
         )
 
         self.feature_linear_out = nn.Linear(
-            in_features=d_hidden, out_features=d_features
+            in_features=d_hidden, out_features=d_features, bias=False
         )
 
         self._reset_parameters()
@@ -613,7 +616,8 @@ class ADN(nn.Module):
         # feature (B, N, T, D)
         feature = self.feature_linear_in(x)
 
-        return self.dropout_embedding(spatio_temporal_embedding + feature)
+        return self.layer_norm_embedding(self.dropout_embedding(
+            spatio_temporal_embedding + feature))
 
     def forward(
             self,

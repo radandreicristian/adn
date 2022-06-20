@@ -1,7 +1,6 @@
 import torch.nn as nn
 from linformer import LinformerSelfAttention
 import torch
-import torch.nn.functional as f
 
 
 class LinformerAttention(nn.Module):
@@ -27,19 +26,9 @@ class LinformerAttention(nn.Module):
             one_kv_head=True
         )
 
-        if n_heads == 1:
-            self.to_out = nn.Identity()
-        else:
-            self.to_out = nn.Sequential(
-                nn.Linear(in_features=d_hidden, out_features=d_hidden),
-                nn.Dropout(p=p_dropout),
-            )
-        self.fc_out = nn.Linear(in_features=self.d_hidden, out_features=d_hidden)
-
     def forward(self, x: torch.Tensor):
         # features (batch, seq, n_nodes, d_hidden_feat+d_hidden_pos)
-        h = self.linear_self_attention(x)
-        return f.relu(self.fc_out(h))
+        return self.linear_self_attention(x)
 
     def forward_single(self, x: torch.Tensor, **kwargs):
         return self.forward(x=x)

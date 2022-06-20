@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 from einops import rearrange
+from torch.nn.init import xavier_uniform_
 
 
 class EfficientSelfAttention(nn.Module):
@@ -15,27 +16,35 @@ class EfficientSelfAttention(nn.Module):
         self.n_heads = n_heads
         self.d_head = d_hidden // n_heads
 
-        self.to_qkv = nn.Linear(in_features=3*d_hidden, out_features=3*d_hidden)
+        self.to_q = nn.Linear(in_features=d_hidden, out_features=d_hidden, bias=True)
+        self.to_k = nn.Linear(in_features=d_hidden, out_features=d_hidden, bias=True)
+        self.to_v = nn.Linear(in_features=d_hidden, out_features=d_hidden, bias=True)
 
         self.scale = self.d_head**0.5
         if n_heads == 1:
-            self.to_out = nn.Identity()
+            self.to_out = nn.Dropout(p=p_dropout)
         else:
             self.to_out = nn.Sequential(
-                nn.Linear(in_features=d_hidden, out_features=d_hidden),
+                nn.Linear(in_features=d_hidden, out_features=d_hidden, bias=False),
                 nn.Dropout(p=p_dropout),
             )
+        self.use_mask = use_mask
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        xavier_uniform_(self.to_q.weight)
+        xavier_uniform_(self.to_k.weight)
+        xavier_uniform_(self.to_v.weight)
 
     def forward(self, q, k, v):
-        x = torch.cat((q, k, v), dim=-1)
-        qkv = self.to_qkv(x).chunk(3, dim=-1)
+        q, k, v = self.to_q(q), self.to_k(k), self.to_v(v)
         q, k, v = map(
-            lambda t: rearrange(t, "b n (h d) -> b h n d", h=self.n_heads), qkv
+            lambda t: rearrange(t, "b n (h d) -> b h n d", h=self.n_heads), (q, k, v)
         )
-        q = q.softmax(dim=-1) * self.scale**-0.25
-        k = q.softmax(dim=-2) * self.scale**-0.25
 
-        context_vectors = k.transpose(-1, -2) @ v
+        q = q.softmax(dim=-1) * self.scale**-0.25
+
+        context_vectors = (k.transpose(-1, -2) @ v).softmax(dim=-2) * self.scale**-0.25
         attention = q @ context_vectors
 
         attention = rearrange(attention, "b h n d -> b n (h d)")

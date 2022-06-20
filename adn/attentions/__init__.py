@@ -5,7 +5,7 @@ from adn.attentions.full import MultiHeadAttention
 from adn.attentions.linear import LinearAttention
 from adn.attentions.lsh import LshSelfAttention
 from adn.attentions.group import GroupAttention
-from adn.attentions.linformer import LinformerSelfAttention, LinformerAttention
+from adn.attentions.linformer import LinformerAttention
 import torch.nn as nn
 
 

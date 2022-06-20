@@ -70,11 +70,11 @@ class GroupAttention(nn.Module):
         if self.use_mask:
             # Assume masking is only done after a spatial split.
             batch_size, _, seq_len, _ = q.shape
-            mask = torch.tril(torch.ones(seq_len, seq_len).to(x.device))
+            mask = torch.tril(torch.ones(seq_len, seq_len).to(q.device))
             mask = repeat(mask, "m n -> b h m n", b=batch_size, h=self.n_heads).to(
                 torch.bool
             )
-            condition = torch.tensor([-(2**15) + 1], dtype=torch.float32).to(x.device)
+            condition = torch.tensor([-(2**15) + 1], dtype=torch.float32).to(q.device)
             attention_map = torch.where(mask, attention_map, condition)
         attention_map = f.softmax(attention_map, dim=-1)
         x = attention_map @ v

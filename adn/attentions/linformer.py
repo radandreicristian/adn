@@ -15,12 +15,12 @@ class LinformerAttention(nn.Module):
             "Hidden size not divisible by number of " "heads."
         )
         k = kwargs.get("k")
-        seq_len = kwargs.get("seq_len")
+        seq_len = kwargs.get("n_nodes")
 
         self.n_heads = n_heads
         self.linear_self_attention = LinformerSelfAttention(
             dim=self.d_hidden,
-            heads=self.n_heads,
+            heads=n_heads,
             seq_len=seq_len,
             k=k,
             one_kv_head=True

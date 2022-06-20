@@ -13,7 +13,7 @@ class ShapeSanityTestCase(unittest.TestCase):
     p_dropout = 0.3
     batch_size = 8
     n_blocks = 3
-    spatial_seq_len = 207
+    spatial_seq_len = 325
     temporal_seq_len = 12
 
     def test_full(self):

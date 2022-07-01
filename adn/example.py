@@ -14,7 +14,7 @@ if __name__ == "__main__":
     p_dropout = 0.3
     batch_size = 8
     n_blocks = 3
-    spatial_seq_len = 207
+    spatial_seq_len = 315
     temporal_seq_len = 12
 
     config = {
@@ -26,6 +26,7 @@ if __name__ == "__main__":
         "spatial_seq_len": spatial_seq_len,
         "temporal_seq_len": temporal_seq_len,
         "n_blocks": n_blocks,
+        "spatial_attention_type": "group"
     }
 
     model = ADN(**config)
@@ -60,6 +61,9 @@ if __name__ == "__main__":
     tgt_features = torch.randn(batch_size, spatial_seq_len, temporal_seq_len, d_features)
 
     start = time.time()
+
+    forward_kwargs = {"partitions": model.make_partitions()}
+
     predict = model(
         src_features=src_features,
         src_interval_of_day=src_temporal_descriptor_interval_of_day,
@@ -69,6 +73,7 @@ if __name__ == "__main__":
         tgt_interval_of_day=tgt_temporal_descriptor_interval_of_day,
         tgt_day_of_week=tgt_temporal_descriptor_day_of_week,
         tgt_spatial_descriptor=tgt_spatial_descriptor,
+        **forward_kwargs
     )
 
     finish = time.time()

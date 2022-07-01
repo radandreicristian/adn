@@ -2,20 +2,22 @@ from typing import Type
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as f
 from einops import rearrange, repeat
 from torch import Tensor
+from torch.nn.init import xavier_uniform_
+
+from adn.attentions import AttentionFactory, FULL
 
 
 class ResidualNormFeedforward(nn.Module):
     """A module consisting of a 2-layer MLP, a layer normalization and a residual."""
 
     def __init__(
-        self,
-        d_hidden: int,
-        d_feedforward: int,
-        p_dropout: float,
-        activation: Type[nn.Module],
+            self,
+            d_hidden: int,
+            d_feedforward: int,
+            p_dropout: float,
+            activation: Type[nn.Module],
     ) -> None:
         """
         Initialize the module.
@@ -33,6 +35,11 @@ class ResidualNormFeedforward(nn.Module):
         self.fc_out = nn.Linear(in_features=d_feedforward, out_features=d_hidden)
 
         self.layer_norm = nn.LayerNorm(d_hidden)
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        xavier_uniform_(self.fc_in.weight)
+        xavier_uniform_(self.fc_out.weight)
 
     def forward(self, x: Tensor) -> Tensor:
         """
@@ -43,7 +50,7 @@ class ResidualNormFeedforward(nn.Module):
         """
         h = self.activation(self.fc_in(x))
         h = self.fc_out(self.dropout_hidden(h))
-        return self.layer_norm(self.dropout_output(x + h))
+        return self.layer_norm(self.dropout_output(h) + x)
 
 
 class SpatialSplit(nn.Module):
@@ -139,69 +146,6 @@ class TemporalMerge(nn.Module):
         return rearrange(x, "(b t) n d -> b n t d", t=self.temporal_seq_len)
 
 
-class MultiHeadAttention(nn.Module):
-    """A custom multi-head attention module."""
-
-    def __init__(
-        self, d_hidden: int, n_heads: int, p_dropout: float, use_mask: bool = False
-    ) -> None:
-        """
-        Initialize the module.
-
-        :param d_hidden: The feature dimension.
-        :param n_heads: The number of heads in the multi-head attention.
-        :param p_dropout: The dropout probability.
-        :param use_mask: Whether to use masking (for temporal attention - prevents
-        attending to events in the future).
-        """
-        super(MultiHeadAttention, self).__init__()
-        assert d_hidden % n_heads == 0, "Hidden dimension must be divisible by n_heads."
-        self.n_heads = n_heads
-        self.d_head = d_hidden // n_heads
-
-        self.to_qkv = nn.Linear(in_features=3 * d_hidden, out_features=3 * d_hidden)
-        self.scale = self.d_head**0.5
-        if n_heads == 1:
-            self.to_out = nn.Identity()
-        else:
-            self.to_out = nn.Sequential(
-                nn.Linear(in_features=d_hidden, out_features=d_hidden),
-                nn.Dropout(p=p_dropout),
-            )
-        self.use_mask = use_mask
-
-    def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
-        """
-        Forward three tensors of shape (BT, N, D) or (BN, T, D).
-
-        :param q: The "queries" to compose the attention map with.
-        :param k: The "keys" to compute the attention map with.
-        :param v: The "values" to apply the attention map to.
-        :return: A tensor of shape (BT, N, D) or (BN, T, D).
-        """
-        # q, k, v (BT, N, D) or (BN, T, D)
-        x = torch.cat((q, k, v), dim=-1)
-        qkv = self.to_qkv(x).chunk(3, dim=-1)
-        q, k, v = map(
-            lambda t: rearrange(t, "b n (h d) -> b h n d", h=self.n_heads), qkv
-        )
-
-        attention_map = q @ k.transpose(-1, -2) * self.scale
-        if self.use_mask:
-            # Assume masking is only done after a spatial split.
-            batch_size, _, seq_len, _ = q.shape
-            mask = torch.tril(torch.ones(seq_len, seq_len).to(x.device))
-            mask = repeat(mask, "m n -> b h m n", b=batch_size, h=self.n_heads).to(
-                torch.bool
-            )
-            condition = torch.tensor([-(2**15) + 1], dtype=torch.float32).to(x.device)
-            attention_map = torch.where(mask, attention_map, condition)
-        attention_map = f.softmax(attention_map, dim=-1)
-        x = attention_map @ v
-        x = rearrange(x, "b h n d -> b n (h d)")
-        return self.to_out(x)
-
-
 class SelfAttentionBlock(nn.Module):
     """
     A wrapper over the multi-head attention.
@@ -210,11 +154,13 @@ class SelfAttentionBlock(nn.Module):
     """
 
     def __init__(
-        self,
-        d_hidden: int,
-        n_heads: int,
-        p_dropout: float,
-        use_mask: bool = False,
+            self,
+            d_hidden: int,
+            n_heads: int,
+            p_dropout: float,
+            attention_type: str,
+            use_mask: bool = False,
+            **attention_kwargs,
     ) -> None:
         """
         Initialize the module.
@@ -226,13 +172,18 @@ class SelfAttentionBlock(nn.Module):
         attending to events in the future).
         """
         super(SelfAttentionBlock, self).__init__()
-        self.attention_block = MultiHeadAttention(
-            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout, use_mask=use_mask
+        self.attention_block = AttentionFactory.build_attention(
+            attention_type=attention_type,
+            d_hidden=d_hidden,
+            n_heads=n_heads,
+            p_dropout=p_dropout,
+            use_mask=use_mask,
+            **attention_kwargs,
         )
 
         self.layer_norm_attention = nn.LayerNorm(d_hidden)
 
-    def forward(self, x) -> Tensor:
+    def forward(self, x, **kwargs) -> Tensor:
         """
         Forward a tensor of shape (BT, N, D) or (BN, T, D).
 
@@ -240,7 +191,8 @@ class SelfAttentionBlock(nn.Module):
         three different fully-connected layers and used as Q, K and V in the attention.
         :return: A tensor of shape (BT, N, D) or (BT, N, D).
         """
-        h = self.layer_norm_attention(x + self.attention_block(q=x, k=x, v=x))
+        h = self.layer_norm_attention(x + self.attention_block.forward_single(x=x,
+                                                                              **kwargs))
         return h
 
 
@@ -248,11 +200,11 @@ class CrossAttentionBlock(nn.Module):
     """A wrapper over the multi-head attention in case K, Q, and V are different."""
 
     def __init__(
-        self,
-        d_hidden: int,
-        n_heads: int,
-        p_dropout: float,
-        use_mask: bool = False,
+            self,
+            d_hidden: int,
+            n_heads: int,
+            p_dropout: float,
+            use_mask: bool = False,
     ):
         """
         Initialize the module.
@@ -264,8 +216,15 @@ class CrossAttentionBlock(nn.Module):
         attending to events in the future).
         """
         super(CrossAttentionBlock, self).__init__()
-        self.attention_block = MultiHeadAttention(
-            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout, use_mask=use_mask
+
+        # The cross-attention is only used on the temporal dimension. Here we always
+        # use full-attention.
+        self.attention_block = AttentionFactory.build_attention(
+            attention_type=FULL,
+            d_hidden=d_hidden,
+            n_heads=n_heads,
+            p_dropout=p_dropout,
+            use_mask=use_mask,
         )
         self.layer_norm_attention = nn.LayerNorm(d_hidden)
 
@@ -278,8 +237,8 @@ class CrossAttentionBlock(nn.Module):
         :param v: The "values" to apply the attention map to.
         :return: A tensor of shape (BT, N, D) or (BN, T, D).
         """
-        h = self.layer_norm_attention(q + self.attention_block(q=q, k=k, v=v))
-        return h
+        x = self.layer_norm_attention(q + self.attention_block(q=q, k=k, v=v))
+        return x
 
 
 class Encoder(nn.Module):
@@ -291,13 +250,15 @@ class Encoder(nn.Module):
     """
 
     def __init__(
-        self,
-        d_hidden: int,
-        d_feedforward: int,
-        n_heads: int,
-        p_dropout: float,
-        spatial_seq_len: int,
-        temporal_seq_len: int,
+            self,
+            d_hidden: int,
+            d_feedforward: int,
+            n_heads: int,
+            p_dropout: float,
+            spatial_seq_len: int,
+            temporal_seq_len: int,
+            spatial_attention_type: str,
+            **spatial_attention_kwargs,
     ) -> None:
         """
         Initialize the module.
@@ -313,24 +274,27 @@ class Encoder(nn.Module):
         self.spatial_split = SpatialSplit()
 
         self.temporal_attention = SelfAttentionBlock(
-            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout
+            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout,
+            attention_type=FULL, use_mask=True
         )
 
-        self.temporal_feedforward = ResidualNormFeedforward(
-            d_hidden=d_hidden,
-            d_feedforward=d_feedforward,
-            p_dropout=p_dropout,
-            activation=nn.ReLU,
-        )
         self.spatial_merge = SpatialMerge(spatial_seq_len=spatial_seq_len)
 
         self.temporal_split = TemporalSplit()
 
         self.spatial_attention = SelfAttentionBlock(
-            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout
+            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout,
+            attention_type=spatial_attention_type, **spatial_attention_kwargs
         )
 
-        self.spatial_feedforward = ResidualNormFeedforward(
+        self.feedforward_temporal = ResidualNormFeedforward(
+            d_hidden=d_hidden,
+            d_feedforward=d_feedforward,
+            p_dropout=p_dropout,
+            activation=nn.ReLU,
+        )
+
+        self.feedforward_spatial = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
@@ -339,7 +303,7 @@ class Encoder(nn.Module):
 
         self.temporal_merge = TemporalMerge(temporal_seq_len=temporal_seq_len)
 
-    def forward(self, source_features: Tensor) -> Tensor:
+    def forward(self, source_features: Tensor, **kwargs) -> Tensor:
         """
         Forward a tensor of shape (B, N, T, D).
 
@@ -352,8 +316,7 @@ class Encoder(nn.Module):
         # h (BN, T, D)
         hidden = self.temporal_attention(hidden)
 
-        # h (BN, T, D)
-        hidden = self.temporal_feedforward(hidden)
+        hidden = self.feedforward_temporal(hidden)
 
         # h (B, N, T, D)
         hidden = self.spatial_merge(hidden)
@@ -362,10 +325,9 @@ class Encoder(nn.Module):
         hidden = self.temporal_split(hidden)
 
         # h (BT, N, D)
-        hidden = self.spatial_attention(hidden)
+        hidden = self.spatial_attention(hidden, **kwargs)
 
-        # h (BT, N, D)
-        hidden = self.spatial_feedforward(hidden)
+        hidden = self.feedforward_spatial(hidden)
 
         # h (B, N, T, D)
         hidden = self.temporal_merge(hidden)
@@ -382,13 +344,15 @@ class Decoder(nn.Module):
     """
 
     def __init__(
-        self,
-        d_hidden: int,
-        d_feedforward: int,
-        n_heads: int,
-        p_dropout: float,
-        spatial_seq_len: int,
-        temporal_seq_len: int,
+            self,
+            d_hidden: int,
+            d_feedforward: int,
+            n_heads: int,
+            p_dropout: float,
+            spatial_seq_len: int,
+            temporal_seq_len: int,
+            spatial_attention_type: str,
+            **spatial_attention_kwargs,
     ) -> None:
         """
         Initialize the module.
@@ -404,25 +368,12 @@ class Decoder(nn.Module):
         self.spatial_split = SpatialSplit()
 
         self.temporal_self_attention = SelfAttentionBlock(
-            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout, use_mask=True
+            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout, use_mask=True,
+            attention_type=FULL
         )
 
         self.temporal_cross_attention = CrossAttentionBlock(
-            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout
-        )
-
-        self.temporal_feedforward_self = ResidualNormFeedforward(
-            d_hidden=d_hidden,
-            d_feedforward=d_feedforward,
-            p_dropout=p_dropout,
-            activation=nn.ReLU,
-        )
-
-        self.temporal_feedforward_cross = ResidualNormFeedforward(
-            d_hidden=d_hidden,
-            d_feedforward=d_feedforward,
-            p_dropout=p_dropout,
-            activation=nn.ReLU,
+            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout, use_mask=True
         )
 
         self.spatial_merge = SpatialMerge(spatial_seq_len=spatial_seq_len)
@@ -430,10 +381,25 @@ class Decoder(nn.Module):
         self.temporal_split = TemporalSplit()
 
         self.spatial_attention = SelfAttentionBlock(
-            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout
+            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout,
+            attention_type=spatial_attention_type, **spatial_attention_kwargs
         )
 
-        self.spatial_feedforward = ResidualNormFeedforward(
+        self.feedforward_self_temporal = ResidualNormFeedforward(
+            d_hidden=d_hidden,
+            d_feedforward=d_feedforward,
+            p_dropout=p_dropout,
+            activation=nn.ReLU,
+        )
+
+        self.feedforward_cross_temporal = ResidualNormFeedforward(
+            d_hidden=d_hidden,
+            d_feedforward=d_feedforward,
+            p_dropout=p_dropout,
+            activation=nn.ReLU,
+        )
+
+        self.feedforward_spatial = ResidualNormFeedforward(
             d_hidden=d_hidden,
             d_feedforward=d_feedforward,
             p_dropout=p_dropout,
@@ -442,7 +408,8 @@ class Decoder(nn.Module):
 
         self.temporal_merge = TemporalMerge(temporal_seq_len=temporal_seq_len)
 
-    def forward(self, source_features: Tensor, target_features: Tensor) -> Tensor:
+    def forward(self, source_features: Tensor, target_features: Tensor, **kwargs
+                ) -> Tensor:
         """
         Forward a tensor of shape (B, N, T, D).
 
@@ -450,39 +417,39 @@ class Decoder(nn.Module):
         :param target_features: A tensor of shape (B, N, T, D).
         :return: A tensor of shape (B, N, T, D), representing the encoded features.
         """
-        # h (BN, T, D)
+        # source_features (BN, T, D)
         source_features = self.spatial_split(source_features)
 
-        # h (BN, T', D)
+        # target_features (BN, T', D)
         target_features = self.spatial_split(target_features)
 
-        # h (BN, T', D)
+        # target_features (BN, T', D)
         target_features = self.temporal_self_attention(target_features)
 
-        target_features = self.temporal_feedforward_self(target_features)
+        # target_features (BN, T', D)
+        target_features = self.feedforward_self_temporal(target_features)
 
-        # todo - There is a dimension mismatch here...
-        # h (BN, T, D)
+        # hidden (BN, T, D)
         hidden = self.temporal_cross_attention(
             q=target_features, k=source_features, v=source_features
         )
 
-        # h (BN, T, D)
-        hidden = self.temporal_feedforward_cross(hidden)
+        # hidden (BN, T, D)
+        hidden = self.feedforward_cross_temporal(hidden)
 
-        # h (B, N, T, D)
+        # hidden (B, N, T, D)
         hidden = self.spatial_merge(hidden)
 
-        # h (BT, N, D)
+        # hidden (BT, N, D)
         hidden = self.temporal_split(hidden)
 
-        # h (BT, N, D)
-        hidden = self.spatial_attention(hidden)
+        # hidden (BT, N, D)
+        hidden = self.spatial_attention(hidden, **kwargs)
 
-        # h (BT, N, D)
-        hidden = self.spatial_feedforward(hidden)
+        # hidden (BT, N, D)
+        hidden = self.feedforward_spatial(hidden)
 
-        # h (B, N, T, D)
+        # hidden (B, N, T, D)
         hidden = self.temporal_merge(hidden)
 
         return hidden
@@ -492,15 +459,17 @@ class ADN(nn.Module):
     """The Attention-Diffusion Network module."""
 
     def __init__(
-        self,
-        d_features: int,
-        d_hidden: int,
-        d_feedforward: int,
-        n_heads: int,
-        p_dropout: int,
-        n_blocks: int,
-        spatial_seq_len: int,
-        temporal_seq_len: int,
+            self,
+            d_features: int,
+            d_hidden: int,
+            d_feedforward: int,
+            n_heads: int,
+            p_dropout: int,
+            n_blocks: int,
+            spatial_seq_len: int,
+            temporal_seq_len: int,
+            spatial_attention_type: str,
+            **spatial_attention_kwargs
     ) -> None:
         """
         Initialize the module.
@@ -519,8 +488,14 @@ class ADN(nn.Module):
 
         # Todo - Implement padding.
 
+        self.partitions = None
+        self.spatial_seq_len = spatial_seq_len
+
+        self.dropout_embedding = nn.Dropout(p=p_dropout)
+        self.layer_norm_embedding = nn.LayerNorm(d_hidden)
+
         self.feature_linear_in = nn.Linear(
-            in_features=d_features, out_features=d_hidden
+            in_features=d_features, out_features=d_hidden, bias=False
         )
 
         self.encoders = nn.ModuleList(
@@ -532,6 +507,8 @@ class ADN(nn.Module):
                     p_dropout=p_dropout,
                     spatial_seq_len=spatial_seq_len,
                     temporal_seq_len=temporal_seq_len,
+                    spatial_attention_type=spatial_attention_type,
+                    **spatial_attention_kwargs
                 )
                 for _ in range(n_blocks)
             ]
@@ -546,6 +523,8 @@ class ADN(nn.Module):
                     p_dropout=p_dropout,
                     spatial_seq_len=spatial_seq_len,
                     temporal_seq_len=temporal_seq_len,
+                    spatial_attention_type=spatial_attention_type,
+                    **spatial_attention_kwargs
                 )
                 for _ in range(n_blocks)
             ]
@@ -562,15 +541,31 @@ class ADN(nn.Module):
         )
 
         self.feature_linear_out = nn.Linear(
-            in_features=d_hidden, out_features=d_features
+            in_features=d_hidden, out_features=d_features, bias=False
         )
 
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        nn.init.xavier_uniform_(self.day_embedding.weight)
+        nn.init.xavier_uniform_(self.spatial_embedding.weight)
+        nn.init.xavier_uniform_(self.minute_interval_embedding.weight)
+        nn.init.xavier_uniform_(self.feature_linear_out.weight)
+        nn.init.xavier_uniform_(self.feature_linear_in.weight)
+
+    def set_partitions(self, n_partitions: int = 16):
+        indices = torch.randperm(self.spatial_seq_len)
+        self.partitions = torch.chunk(indices, chunks=n_partitions)
+
+    def get_partitions(self):
+        return self.partitions
+
     def init(
-        self,
-        x: Tensor,
-        temporal_descriptor_interval_of_day: Tensor,
-        temporal_descriptor_day_of_week: Tensor,
-        spatial_descriptor: Tensor,
+            self,
+            x: Tensor,
+            temporal_descriptor_interval_of_day: Tensor,
+            temporal_descriptor_day_of_week: Tensor,
+            spatial_descriptor: Tensor,
     ) -> Tensor:
         """
         Initialize the features for the encoder and decoder.
@@ -610,18 +605,20 @@ class ADN(nn.Module):
         # feature (B, N, T, D)
         feature = self.feature_linear_in(x)
 
-        return spatio_temporal_embedding + feature
+        return self.layer_norm_embedding(self.dropout_embedding(
+            spatio_temporal_embedding + feature))
 
     def forward(
-        self,
-        src_features: Tensor,
-        src_interval_of_day: Tensor,
-        src_day_of_week: Tensor,
-        src_spatial_descriptor,
-        tgt_features: Tensor,
-        tgt_interval_of_day: Tensor,
-        tgt_day_of_week: Tensor,
-        tgt_spatial_descriptor: Tensor,
+            self,
+            src_features: Tensor,
+            src_interval_of_day: Tensor,
+            src_day_of_week: Tensor,
+            src_spatial_descriptor,
+            tgt_features: Tensor,
+            tgt_interval_of_day: Tensor,
+            tgt_day_of_week: Tensor,
+            tgt_spatial_descriptor: Tensor,
+            **kwargs
     ) -> Tensor:
         """
         Forward the input tensors through the model.
@@ -643,6 +640,7 @@ class ADN(nn.Module):
         :return: A tensor of shape (B, N, T, D) corresponding to the prediction.
         """
 
+        # source_features (B, N, T, D)
         source_features = self.init(
             x=src_features,
             temporal_descriptor_interval_of_day=src_interval_of_day,
@@ -650,6 +648,7 @@ class ADN(nn.Module):
             spatial_descriptor=src_spatial_descriptor,
         )
 
+        # target_features (B, N, T, D)
         target_features = self.init(
             x=tgt_features,
             temporal_descriptor_interval_of_day=tgt_interval_of_day,
@@ -657,12 +656,16 @@ class ADN(nn.Module):
             spatial_descriptor=tgt_spatial_descriptor,
         )
 
+        # source_features (B, N, T, D)
         for encoder in self.encoders:
-            source_features = encoder(source_features)
+            source_features = encoder(source_features, **kwargs)
 
+        # target_features (B, N, T, D)
         for decoder in self.decoders:
             target_features = decoder(
-                source_features=source_features, target_features=target_features
+                source_features=source_features, target_features=target_features,
+                **kwargs
             )
 
+        # (B, N, T, 1)
         return self.feature_linear_out(target_features)

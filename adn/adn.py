@@ -485,7 +485,6 @@ class ADN(nn.Module):
         :param temporal_seq_len: The length of the temporal dimension.
         """
         super(ADN, self).__init__()
-
         # Todo - Implement padding.
 
         self.partitions = None

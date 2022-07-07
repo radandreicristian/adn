@@ -275,7 +275,7 @@ class Encoder(nn.Module):
 
         self.temporal_attention = SelfAttentionBlock(
             d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout,
-            attention_type=FULL, use_mask=True
+            attention_type=FULL, use_mask=False
         )
 
         self.spatial_merge = SpatialMerge(spatial_seq_len=spatial_seq_len)
@@ -373,7 +373,7 @@ class Decoder(nn.Module):
         )
 
         self.temporal_cross_attention = CrossAttentionBlock(
-            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout, use_mask=True
+            d_hidden=d_hidden, n_heads=n_heads, p_dropout=p_dropout, use_mask=False
         )
 
         self.spatial_merge = SpatialMerge(spatial_seq_len=spatial_seq_len)

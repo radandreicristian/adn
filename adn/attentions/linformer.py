@@ -10,12 +10,11 @@ class LinformerAttention(nn.Module):
     ) -> None:
         super(LinformerAttention, self).__init__()
         self.d_hidden = d_hidden
-
         assert self.d_hidden % n_heads == 0, (
             "Hidden size not divisible by number of " "heads."
         )
         k = kwargs.get("k")
-        seq_len = kwargs.get("n_nodes")
+        seq_len = kwargs.get("seq_len")
 
         self.n_heads = n_heads
         self.linear_self_attention = LinformerSelfAttention(
